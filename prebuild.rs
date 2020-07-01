@@ -31,6 +31,9 @@ impl Builder {
   }
 }
 
+// HACK(aodhneine): this is really not safe, but it works by leaking heap memory. It's just one byte
+// for every call, so it's not a big problem, but we probably should look for a better solution. For
+// now it will stay, until I can find something I'll be satisfied with.
 macro_rules! char_to_str {
   ($c:expr) => {
     Box::leak($c.to_string().into_boxed_str());
@@ -62,15 +65,22 @@ pub mod rustc {
         debug_info: DebugInfo::Full,
       };
     }
+    
+    pub fn into_slice(&self) -> Box<[String]> {
+      let opt_level = format!("opt-level={}", match &self.optimization_level {
+        OptLevel::Numeric(val) if *val <= 3 => char_to_str!(val),
+        OptLevel::Numeric(_) => panic!("Invalid optimization level value!"),
+        OptLevel::S => "s",
+        OptLevel::Z => "z",
+      });
 
-    pub fn into_slice(&self) -> [&str; 2] {
-      let opt_level = match &self.optimization_level {
-        OptLevel::Numeric(val) if *val >= 0 && *val <= 3 => char_to_str!(val),
-        S => "s",
-        Z => "z",
-      };
+      let debuginfo = format!("debuginfo={}", match &self.debug_info {
+        DebugInfo::None => 0,
+        DebugInfo::LineTablesOnly => 1,
+        DebugInfo::Full => 2,
+      });
       
-      return ["-C", Box::leak(format!("opt-level={}", opt_level).into_boxed_str())];
+      return Box::new(["-C".into(), debuginfo, "-C".into(), opt_level]);
     }
   }
 }
@@ -83,18 +93,18 @@ pub struct Executable<'a> {
 
 impl Executable<'_> {
   pub fn set_build_options(&mut self, options: rustc::BuildOptions) {
-
+    self.build_options = options;
   }
 
   pub fn compile(&self) {
     let mut cmd = std::process::Command::new("rustc");
     let cmd = cmd
       .args(&[self.path, "-o", self.name])
-      .args(&self.build_options.into_slice());
+      .args(self.build_options.into_slice().iter());
 
     match cmd.spawn() {
       Ok(mut c) => {
-        c.wait();
+        c.wait().unwrap();
       },
       Err(e) => eprintln!("Failed with {:?}!", e),
     };
