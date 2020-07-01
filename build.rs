@@ -1,13 +1,15 @@
-mod prebuild;
-
-pub fn build(b: &mut prebuild::Builder) {
-  let profile = b.debug_build_options();
-  let mut build_exec = b.add_executable("build", "build.rs");
-  build_exec.set_build_options(profile);
-  build_exec.compile();
-}
+#[path = "_build.rs"]
+mod build;
 
 fn main() {
-  let mut builder = prebuild::Builder::default();
-  build(&mut builder);
+  let mut builder = build::Builder::default();
+  builder.set_build_profile(build::Profile::Debug);
+
+  let build_options = builder.debug_build_options();
+  let target = builder.default_target_options();
+  let mut exe = builder.add_executable("build", "build.rs");
+
+  exe.set_build_options(build_options);
+  exe.set_target(target);
+  exe.compile();
 }
